@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"regexp"
 	"text/tabwriter"
 
 	"github.com/OJ/gobuster/v3/libgobuster"
@@ -34,6 +35,12 @@ type GobusterDir struct {
 // the status code, length and an error
 func (d *GobusterDir) get(url string) (*int, *int64, error) {
 	return d.http.Get(url, "", d.options.Cookies)
+}
+
+// GetRequest issues a GET request to the target and returns
+// the status code, length and an error
+func (d *GobusterDir) getwithbody(url string) (*int, *[]byte, error) {
+	return d.http.GetWithBody(url, "", d.options.Cookies)
 }
 
 // NewGobusterDir creates a new initialized GobusterDir
@@ -73,6 +80,13 @@ func NewGobusterDir(cont context.Context, globalopts *libgobuster.Options, opts 
 
 // PreRun is the pre run implementation of gobusterdir
 func (d *GobusterDir) PreRun() error {
+	// Validate options
+	if d.options.StatusCodesBlacklistParsed.Length() == 0 &&
+	d.options.StatusCodesParsed.Length() == 0 &&
+	len(d.options.ErrorRegexp) == 0 {
+		return fmt.Errorf("StatusCodes, StatusCodesBlacklist and ErrorRegexp cannot all be empty")
+	}
+
 	// add trailing slash
 	if !strings.HasSuffix(d.options.URL, "/") {
 		d.options.URL = fmt.Sprintf("%s/", d.options.URL)
@@ -83,13 +97,43 @@ func (d *GobusterDir) PreRun() error {
 		return fmt.Errorf("unable to connect to %s: %v", d.options.URL, err)
 	}
 
+	// Test the target for how it responds to a random URL (likely to be a negative match to the filtering rules)
 	guid := uuid.New()
 	url := fmt.Sprintf("%s%s", d.options.URL, guid)
-	wildcardResp, _, err := d.get(url)
+	wildcardResp, wildcardBody, err := d.getwithbody(url)
 	if err != nil {
 		return err
 	}
 
+	// Test application order
+	// If error regexp set:
+	//   If content matches error regexp - url does not exist
+	//   else url exists
+	// If blacklist:
+	//   If status code in blacklist - url does not exist
+	//   Else url exists
+	// If whitelist:
+	//   status code in whitelist - url exists
+	//   Else url does not exist
+
+	// Check content regexp
+	if len(d.options.ErrorRegexp) > 0 {
+		result, reErr := regexp.Match(d.options.ErrorRegexp,
+			*wildcardBody)
+
+		if reErr != nil {
+			fmt.Println("Error matching regexp %s",
+				d.options.ErrorRegexp)
+			return &ErrWildcard{url: url, statusCode: 0}
+		}
+		if result {
+			return nil
+		} else {
+			return &ErrWildcard{url: url, statusCode: 0}
+		}
+	}
+
+	// Check status codes
 	if d.options.StatusCodesBlacklistParsed.Length() > 0 {
 		if !d.options.StatusCodesBlacklistParsed.Contains(*wildcardResp) && !d.options.WildcardForced {
 			return &ErrWildcard{url: url, statusCode: *wildcardResp}
@@ -98,8 +142,6 @@ func (d *GobusterDir) PreRun() error {
 		if d.options.StatusCodesParsed.Contains(*wildcardResp) && !d.options.WildcardForced {
 			return &ErrWildcard{url: url, statusCode: *wildcardResp}
 		}
-	} else {
-		return fmt.Errorf("StatusCodes and StatusCodesBlacklist are both not set which should not happen")
 	}
 
 	return nil
@@ -114,7 +156,7 @@ func (d *GobusterDir) Run(word string) ([]libgobuster.Result, error) {
 
 	// Try the DIR first
 	url := fmt.Sprintf("%s%s%s", d.options.URL, word, suffix)
-	dirResp, dirSize, err := d.get(url)
+	dirResp, dirBody, err := d.getwithbody(url)
 	if err != nil {
 		return nil, err
 	}
@@ -122,23 +164,32 @@ func (d *GobusterDir) Run(word string) ([]libgobuster.Result, error) {
 	if dirResp != nil {
 		resultStatus := libgobuster.StatusMissed
 
-		if d.options.StatusCodesBlacklistParsed.Length() > 0 {
-			if !d.options.StatusCodesBlacklistParsed.Contains(*dirResp) {
-				resultStatus = libgobuster.StatusFound
-			}
-		} else if d.options.StatusCodesParsed.Length() > 0 {
-			if d.options.StatusCodesParsed.Contains(*dirResp) {
+		if len(d.options.ErrorRegexp) > 0 {
+			result, _ := regexp.Match(d.options.ErrorRegexp,
+				*dirBody)
+			if result == false {
 				resultStatus = libgobuster.StatusFound
 			}
 		} else {
-			return nil, fmt.Errorf("StatusCodes and StatusCodesBlacklist are both not set which should not happen")
+			if d.options.StatusCodesBlacklistParsed.Length() > 0 {
+				if !d.options.StatusCodesBlacklistParsed.Contains(*dirResp) {
+					resultStatus = libgobuster.StatusFound
+				}
+			} else if d.options.StatusCodesParsed.Length() > 0 {
+				if d.options.StatusCodesParsed.Contains(*dirResp) {
+					resultStatus = libgobuster.StatusFound
+				}
+			} else {
+				return nil, fmt.Errorf("StatusCodes and StatusCodesBlacklist are both not set which should not happen")
+			}
 		}
 
 		if resultStatus == libgobuster.StatusFound || d.globalopts.Verbose {
+			size := int64(len(*dirBody))
 			ret = append(ret, libgobuster.Result{
 				Entity:     fmt.Sprintf("%s%s", word, suffix),
 				StatusCode: *dirResp,
-				Size:       dirSize,
+				Size:       &size,
 				Status:     resultStatus,
 			})
 		}

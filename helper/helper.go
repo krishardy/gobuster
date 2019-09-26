@@ -41,3 +41,4 @@ func ParseStatusCodes(statuscodes string) (libgobuster.IntSet, error) {
 	}
 	return ret, nil
 }
+

@@ -94,6 +94,8 @@ func parseDirOptions() (*libgobuster.Options, *gobusterdir.OptionsDir, error) {
 		plugin.StatusCodesParsed = ret
 	}
 
+	plugin.ErrorRegexp, err = cmdDir.Flags().GetString("errorregexp")
+
 	plugin.UseSlash, err = cmdDir.Flags().GetBool("addslash")
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid value for addslash: %v", err)
@@ -134,6 +136,7 @@ func init() {
 	}
 	cmdDir.Flags().StringP("statuscodes", "s", "200,204,301,302,307,401,403", "Positive status codes (will be overwritten with statuscodesblacklist if set)")
 	cmdDir.Flags().StringP("statuscodesblacklist", "b", "", "Negative status codes (will override statuscodes if set)")
+	cmdDir.Flags().StringP("errorregexp", "R", "", "Error regexp")
 	cmdDir.Flags().StringP("extensions", "x", "", "File extension(s) to search for")
 	cmdDir.Flags().BoolP("expanded", "e", false, "Expanded mode, print full URLs")
 	cmdDir.Flags().BoolP("nostatus", "n", false, "Don't print status codes")

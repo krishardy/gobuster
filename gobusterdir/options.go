@@ -13,6 +13,7 @@ type OptionsDir struct {
 	StatusCodesParsed          libgobuster.IntSet
 	StatusCodesBlacklist       string
 	StatusCodesBlacklistParsed libgobuster.IntSet
+	ErrorRegexp                string
 	UseSlash                   bool
 	WildcardForced             bool
 	IncludeLength              bool
