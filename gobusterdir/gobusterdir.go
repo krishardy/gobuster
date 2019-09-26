@@ -322,6 +322,12 @@ func (d *GobusterDir) GetConfigString() (string, error) {
 		}
 	}
 
+	if o.ErrorRegexp != "" {
+		if _, err := fmt.Fprintf(tw, "[+] Error Regexp: \t%s\n", o.ErrorRegexp); err != nil {
+			return "", err
+		}
+	}
+
 	if o.Proxy != "" {
 		if _, err := fmt.Fprintf(tw, "[+] Proxy:\t%s\n", o.Proxy); err != nil {
 			return "", err
